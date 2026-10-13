@@ -28,3 +28,9 @@ secrets.json
 *.pem
 *.p12
 *.pfx
+
+# Local QA captures can contain device names and selected destinations.
+docs/*.png
+docs/*.jpg
+docs/*.jpeg
+screenshots/
