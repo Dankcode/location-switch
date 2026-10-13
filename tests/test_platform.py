@@ -27,12 +27,13 @@ async def test_concurrent_discovery_shares_one_worker(monkeypatch):
     discover.assert_awaited_once()
 
 
+@pytest.mark.parametrize("host", ["Linux", "Windows"])
 @pytest.mark.parametrize("version,transport,uses_daemon", [("17.3.1","auto",True),("17.4","auto",False),("27.0.1","auto",False),("27.0.1","tunneld",True)])
-async def test_linux_tunnel_routing_and_selected_device(monkeypatch, version, transport, uses_daemon):
+async def test_tunnel_routing_and_selected_device(monkeypatch, host, version, transport, uses_daemon):
     import location_switch.worker as worker
     import pymobiledevice3.remote.rsd_tunnel as tunnel
     import pymobiledevice3.tunneld.api as daemon
-    monkeypatch.setattr(worker.platform, "system", lambda:"Linux")
+    monkeypatch.setattr(worker.platform, "system", lambda:host)
     monkeypatch.setenv("LOCATION_TUNNEL", transport)
     provider = AsyncMock()
     provider.__aenter__.return_value = provider
@@ -87,7 +88,8 @@ def test_phone_mode_uses_private_persistent_key_and_network_listener(monkeypatch
     assert run.call_args.kwargs["host"] == "0.0.0.0"
     key_file=tmp_path/'state/access-key'
     assert len(key_file.read_text().strip()) >= 12
-    assert key_file.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert key_file.stat().st_mode & 0o777 == 0o600
     assert os.environ["LOCATION_AUTO_REVEAL"] == "1"
     assert os.environ["LOCATION_AUTO_MOUNT"] == "1"
     assert os.environ["LOCATION_COMMAND_TIMEOUT"] == "600"
@@ -175,3 +177,21 @@ async def test_worker_progress_does_not_become_false_success():
     assert await controller._read() == {"ready":True}
     assert controller.operation_message == "Preparing image"
     assert controller.mode == "unknown"
+
+
+def test_frozen_worker_command_uses_executable_dispatch(monkeypatch):
+    import location_switch.runtime as runtime
+    monkeypatch.setattr(runtime.sys, 'frozen', True, raising=False)
+    assert runtime.worker_command('list') == [runtime.sys.executable, '--worker', 'list']
+
+
+async def test_windows_reader_handles_commands_and_eof(monkeypatch):
+    import io
+    import asyncio
+    import location_switch.worker as worker
+    monkeypatch.setattr(worker.platform, 'system', lambda: 'Windows')
+    monkeypatch.setattr(worker.sys, 'stdin', io.TextIOWrapper(io.BytesIO(b'{"action":"clear"}\n')))
+    reader, transport = await worker.command_reader()
+    assert transport is None
+    assert await asyncio.wait_for(reader.readline(), 2) == b'{"action":"clear"}\n'
+    assert await asyncio.wait_for(reader.readline(), 2) == b''

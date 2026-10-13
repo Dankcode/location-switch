@@ -49,12 +49,12 @@ def main(argv=None):
         os.environ["LOCATION_PHONE_ACCESS"] = "1"
         print("Phone panel: http://<Pi USB or Wi-Fi IP>:" + str(args.port), flush=True)
         print("Login: location. Password: LOCATION_ACCESS_KEY or state/access-key.", flush=True)
-    if not args.no_browser and (args.browser or platform.system() == "Darwin"):
+    if not args.no_browser and (args.browser or platform.system() in ("Darwin", "Windows")):
         timer = threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{args.port}"))
         timer.daemon = True
         timer.start()
     print(f"Location Switch: http://127.0.0.1:{args.port}", flush=True)
-    uvicorn.run("location_switch.server:app", host="0.0.0.0" if args.phone_access else "127.0.0.1", port=args.port, workers=1, log_level="warning")
+    uvicorn.run("location_switch.server:app", host="0.0.0.0" if args.phone_access else "127.0.0.1", port=args.port, workers=1, loop="asyncio", log_level="warning")
 
 
 if __name__ == "__main__":

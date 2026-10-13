@@ -1,0 +1,76 @@
+name: Desktop downloads
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - 'location_switch/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac-arm64
+          - os: macos-15-intel
+            platform: mac-intel
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen --extra dev
+      - run: uv run --frozen --extra dev python -m pytest -q
+      - run: uv pip install 'pyinstaller>=6.16,<7'
+      - run: .venv/bin/python -m PyInstaller --noconfirm packaging/location-switch.spec
+        if: runner.os != 'Windows'
+      - run: .venv/Scripts/python -m PyInstaller --noconfirm packaging/location-switch.spec
+        if: runner.os == 'Windows'
+      - run: .venv/bin/python packaging/smoke.py dist/LocationSwitch/LocationSwitch
+        if: runner.os != 'Windows'
+      - run: .venv/Scripts/python packaging/smoke.py dist/LocationSwitch/LocationSwitch.exe
+        if: runner.os == 'Windows'
+      - name: Prepare ZIP
+        shell: bash
+        run: |
+          cp LICENSE README.md packaging/README.txt dist/LocationSwitch/
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            cp packaging/start.command dist/LocationSwitch/
+            chmod +x dist/LocationSwitch/start.command
+          fi
+          python -c "import shutil; shutil.make_archive('location-switch-${{ matrix.platform }}', 'zip', 'dist', 'LocationSwitch')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: location-switch-${{ matrix.platform }}
+          path: location-switch-${{ matrix.platform }}.zip
+          retention-days: 7
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+          merge-multiple: true
+      - name: Publish desktop downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum downloads/*.zip > downloads/SHA256SUMS.txt
+          if ! gh release view v0.1.0 >/dev/null 2>&1; then
+            gh release create v0.1.0 --target "$GITHUB_SHA" --title 'Location Switch 0.1.0' --notes-file packaging/release-notes.md
+          fi
+          gh release upload v0.1.0 downloads/*.zip downloads/SHA256SUMS.txt --clobber

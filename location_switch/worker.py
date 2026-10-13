@@ -4,11 +4,36 @@ import json
 import sys
 import os
 import platform
+import threading
 from contextlib import AsyncExitStack, suppress
 
 
 def emit(value):
     print(json.dumps(value), flush=True)
+
+
+async def command_reader():
+    if platform.system() != "Windows":
+        reader = asyncio.StreamReader()
+        transport, _ = await asyncio.get_running_loop().connect_read_pipe(
+            lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+        return reader, transport
+    # Windows console/anonymous stdin handles cannot use connect_read_pipe.
+    # A daemon reader lets disconnect/shutdown exit even while stdin is blocked.
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader()
+
+    def pump():
+        try:
+            for line in sys.stdin.buffer:
+                loop.call_soon_threadsafe(reader.feed_data, line)
+            loop.call_soon_threadsafe(reader.feed_eof)
+        except (OSError, RuntimeError):
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(reader.feed_eof)
+
+    threading.Thread(target=pump, daemon=True).start()
+    return reader, None
 
 
 async def discover():
@@ -100,9 +125,7 @@ async def serve(udid):
                     await auto_mount(lockdown)
             location = DtSimulateLocation(lockdown)
         emit({"ready": True})
-        reader = asyncio.StreamReader()
-        transport, _ = await asyncio.get_running_loop().connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+        reader, transport = await command_reader()
         disconnected = asyncio.create_task(dvt.dtx.wait_disconnected()) if dvt else None
         simulated = False
         try:
@@ -129,7 +152,8 @@ async def serve(udid):
                     raise ValueError("Unknown action")
                 emit({"ok": True})
         finally:
-            transport.close()
+            if transport is not None:
+                transport.close()
             if disconnected:
                 disconnected.cancel()
                 with suppress(asyncio.CancelledError):
@@ -164,8 +188,8 @@ async def open_developer_provider(stack, udid, version):
     transport = os.getenv("LOCATION_TUNNEL", "auto")
     if transport not in ("auto", "tunneld"):
         raise RuntimeError("LOCATION_TUNNEL must be auto or tunneld")
-    early_linux = platform.system() == "Linux" and Version(version) < Version("17.4")
-    if transport == "tunneld" or early_linux:
+    early_non_mac = platform.system() in ("Linux", "Windows") and Version(version) < Version("17.4")
+    if transport == "tunneld" or early_non_mac:
         from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
         provider = await get_tunneld_device_by_udid(udid)
         if provider is None:
@@ -176,19 +200,24 @@ async def open_developer_provider(stack, udid, version):
     return await stack.enter_async_context(PreferredRsdTunnel(serial=udid, autopair=False))
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
     try:
-        if sys.argv[1] == "list":
+        if args[0] == "list":
             operation = discover()
-        elif sys.argv[1] == "enable-developer-mode":
-            operation = enable_developer_mode(sys.argv[2])
-        elif sys.argv[1] == "reveal-developer-mode":
-            operation = reveal_developer_mode(sys.argv[2])
-        elif sys.argv[1] == "pair":
-            operation = pair_device(sys.argv[2])
+        elif args[0] == "enable-developer-mode":
+            operation = enable_developer_mode(args[1])
+        elif args[0] == "reveal-developer-mode":
+            operation = reveal_developer_mode(args[1])
+        elif args[0] == "pair":
+            operation = pair_device(args[1])
         else:
-            operation = serve(sys.argv[2])
+            operation = serve(args[1])
         asyncio.run(operation)
     except Exception as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"})
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

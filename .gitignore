@@ -34,3 +34,7 @@ docs/*.png
 docs/*.jpg
 docs/*.jpeg
 screenshots/
+
+# Standalone build outputs.
+build/
+dist/

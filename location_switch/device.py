@@ -1,9 +1,9 @@
 import asyncio
 import json
 import os
-import sys
 import time
 from contextlib import suppress
+from .runtime import worker_command
 
 
 class DeviceError(RuntimeError):
@@ -61,7 +61,7 @@ class DeviceController:
             if self.mode == "spoofed" or self.setup["state"] in ("enabling","pairing"):
                 raise DeviceError("Finish the active device operation before setup.")
             process = await asyncio.create_subprocess_exec(
-                sys.executable,"-m","location_switch.worker","reveal-developer-mode",udid,
+                *worker_command("reveal-developer-mode", udid),
                 stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
             try:
                 stdout, stderr = await asyncio.wait_for(process.communicate(),30)
@@ -75,7 +75,7 @@ class DeviceController:
 
     async def _discover(self):
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "location_switch.worker", "list",
+            *worker_command("list"),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), 30)
@@ -124,7 +124,7 @@ class DeviceController:
 
     async def _enable_command(self, udid, action="enable-developer-mode"):
         self.setup_process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "location_switch.worker", action, udid,
+            *worker_command(action, udid),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
             stdout, stderr = await asyncio.wait_for(self.setup_process.communicate(), 180)
@@ -205,7 +205,7 @@ class DeviceController:
                     self.mode = "unknown"
                     self.diagnostics = ""
                     self.process = await asyncio.create_subprocess_exec(
-                        sys.executable, "-m", "location_switch.worker", "serve", udid,
+                        *worker_command("serve", udid),
                         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE)
                     self.stderr_task = asyncio.create_task(self._drain_stderr())

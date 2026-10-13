@@ -2,9 +2,15 @@
 
 A small local browser UI to set a connected iPhone's simulated GPS location to an address or coordinates, then switch back to its real GPS. Built with [pymobiledevice3](https://github.com/doronz88/pymobiledevice3), FastAPI, and plain HTML/CSS/JavaScript. This is a standalone Git repository, not a fork.
 
-## Run on your Mac
+## Download for Mac or Windows
 
-Dependencies are already installed in this checkout. Double-click **start.command**, or from this directory run:
+Download the appropriate ZIP from [GitHub Releases](https://github.com/Dankcode/location-switch/releases/latest): **mac-arm64** for Apple Silicon, **mac-intel** for Intel Macs, or **windows-x64** for Windows 10/11. Extract the entire ZIP, then double-click **start.command** (Mac) or **LocationSwitch.exe** (Windows). Python and dependencies are included. The local browser panel opens automatically; keep the console open. These builds are unsigned. Complete your operating system's normal approval flow if prompted.
+
+On Windows, install [Apple Devices](https://support.apple.com/guide/devices-windows/welcome/windows) first for Apple's USB drivers, then connect, unlock and Trust the iPhone. The downloads automatically mount the developer image on first spoof when needed. Internet is required for that first download. Windows builds receive automated startup/IPC checks; physical iPhone validation on Windows is pending.
+
+## Run from source on your Mac
+
+Install uv, then double-click **start.command**, or from this directory run:
 
 ```sh
 ./start.command
@@ -27,7 +33,7 @@ For **Linux / Raspberry Pi Zero 2 W**, use `./scripts/install-linux.sh`, then `.
 
    Replace `YOUR_DEVICE_UDID` with the `UniqueDeviceID` from the first command. The image mount may download files and contact Apple's personalization service. iOS below 17 may require a compatible Xcode developer image. The app surfaces errors when Developer Mode or the image is missing.
 
-The pinned upstream API uses a persistent **PreferredRsdTunnel** for iOS 17+, with its no-root transport selection on macOS. Older iOS versions use `DtSimulateLocation` over lockdown. See [upstream tunnel requirements](https://doronz88.github.io/pymobiledevice3/guides/ios17-tunnels/) for other hosts and early iOS 17 limitations. This launcher targets macOS; the worker's async stdin pipe has not been tested on Windows.
+The pinned upstream API uses a persistent **PreferredRsdTunnel** for iOS 17+, with its no-root transport selection on macOS. Older iOS versions use `DtSimulateLocation` over lockdown. See [upstream tunnel requirements](https://doronz88.github.io/pymobiledevice3/guides/ios17-tunnels/) for other hosts and early iOS 17 limitations. On Windows or Linux with iOS 17.0–17.3.1, start a privileged `tunneld` first. In a standalone download, run `LocationSwitch.exe --pymobiledevice3 remote tunneld` (Windows, Administrator terminal) or `./LocationSwitch --pymobiledevice3 remote tunneld` (Mac, if needed). Source users can run `uv run --frozen python -m pymobiledevice3 remote tunneld`.
 
 Developer Mode setup runs in a separate worker using the same `AmfiService.enable_developer_mode()` API as upstream's `amfi enable-developer-mode` command, including its reconnect/post-restart confirmation flow. The operation is limited to three minutes; after a timeout, check the phone's final confirmation, unlock it, and press Refresh. An already-enabled phone is detected without restarting it. Setup is disabled during an active spoof; restore first. The developer disk image remains a separate setup step. Stopping the server interrupts any pending host-side setup; check the phone's state manually afterward.
 
@@ -79,6 +85,8 @@ Tests cover coordinate limits, mutation authorization, command dispatch, acknowl
 - `location_switch/worker.py`: isolated persistent pymobiledevice3 connection.
 - `location_switch/geocode.py`: Photon lookup, throttling and cache.
 - `location_switch/static/`: UI, with no frontend build step.
-- `docs/`: design concept, screenshots and validation notes.
+- `docs/`: setup and validation notes.
+- `packaging/`: standalone entry, build specification, and smoke checks.
+- `.github/workflows/release.yml`: native Mac/Windows builds and release ZIPs.
 
 The dependency is pinned to upstream Git commit `3a173489266e23b5574a89b3c152fb290b760024` for its current async API, and all dependencies are locked in `uv.lock`. This project is licensed under GPL-3.0-or-later; see `LICENSE`. pymobiledevice3 is copyright its upstream contributors, listed in its repository.
