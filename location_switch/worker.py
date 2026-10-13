@@ -102,4 +102,3 @@ if __name__ == "__main__":
     except Exception as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"})
         sys.exit(1)
-

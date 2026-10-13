@@ -2,7 +2,7 @@
 
 ## Automated and browser checks
 
-- 10 tests passed: coordinate validation (including NaN), unauthorized mutation rejection, spoof/restore dispatch, acknowledgment timing, unknown state after failure, device ownership, Photon longitude/latitude mapping and cache, search outage fallback.
+- 11 tests passed: coordinate validation (including NaN), unauthorized mutation rejection, spoof/restore dispatch, acknowledgment timing, unknown state after failure, device ownership, Photon longitude/latitude mapping and cache, search outage fallback, and Developer Mode preflight refusal.
 - JavaScript syntax, Python compilation, launcher shell syntax and dependency lock consistency passed.
 - Codex in-app browser used directly; no external Playwright fallback.
 - Real address search: a public landmark query returned a matching result. Selection populated the coordinates and persisted across reload.

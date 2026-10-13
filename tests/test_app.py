@@ -101,3 +101,15 @@ def test_address_outage_supports_manual_fallback(client, monkeypatch):
     response = client.post("/api/search", json={"query":"Test City"}, headers=headers())
     assert response.status_code == 502
     assert "coordinates" in response.json()["detail"]
+
+
+async def test_developer_mode_off_blocks_location_session(monkeypatch):
+    from location_switch.worker import serve
+    import pymobiledevice3.lockdown
+    lockdown = AsyncMock()
+    lockdown.has_developer_mode = True
+    lockdown.__aenter__.return_value = lockdown
+    lockdown.get_developer_mode_status.return_value = False
+    monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
+    with pytest.raises(RuntimeError, match="Developer Mode is off"):
+        await serve("test-device-0001")

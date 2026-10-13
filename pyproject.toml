@@ -16,4 +16,3 @@ pymobiledevice3 = { git = "https://github.com/doronz88/pymobiledevice3.git", rev
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-

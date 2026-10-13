@@ -96,4 +96,3 @@ async def restore(data: Target):
 
 
 app.mount("/static", StaticFiles(directory=ROOT), name="static")
-

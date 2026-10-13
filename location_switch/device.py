@@ -110,4 +110,3 @@ class DeviceController:
                     await self.process.stdin.drain()
                     await self._read()
             await self._close()
-

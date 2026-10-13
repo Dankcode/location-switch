@@ -36,4 +36,3 @@ class Geocoder:
             if len(self.cache) > 100:
                 self.cache.popitem(last=False)
             return results
-
