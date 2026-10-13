@@ -29,7 +29,18 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
+      # Intel builds cryptography from source; static OpenSSL avoids a collision
+      # with the older OpenSSL bundled by sslpsk-pmd3.
+      - name: Configure Intel Mac OpenSSL
+        if: matrix.platform == 'mac-intel'
+        shell: bash
+        run: |
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - run: uv sync --frozen --extra dev --no-cache
+        if: matrix.platform == 'mac-intel'
       - run: uv sync --frozen --extra dev
+        if: matrix.platform != 'mac-intel'
       - run: uv run --frozen --extra dev python -m pytest -q
       - run: uv pip install 'pyinstaller>=6.16,<7'
       - run: .venv/bin/python -m PyInstaller --noconfirm packaging/location-switch.spec
@@ -69,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum downloads/*.zip > downloads/SHA256SUMS.txt
+          (cd downloads && sha256sum *.zip > SHA256SUMS.txt)
           if ! gh release view v0.1.0 >/dev/null 2>&1; then
             gh release create v0.1.0 --target "$GITHUB_SHA" --title 'Location Switch 0.1.0' --notes-file packaging/release-notes.md
           fi
