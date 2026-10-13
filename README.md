@@ -15,7 +15,7 @@ The launcher uses [uv](https://docs.astral.sh/uv/getting-started/installation/),
 ## Prepare the iPhone
 
 1. Connect it by USB, unlock it, and tap **Trust** when asked. If Trust is not prompted, connect once through Finder. Press Refresh in the app.
-2. Enable **Settings → Privacy & Security → Developer Mode**, restart, and confirm on the phone (iOS 16+).
+2. Press **Enable Developer Mode** in the app. This uses pymobiledevice3's AMFI flow and may restart the selected phone. Keep it connected and unlock it after the restart. The page polls progress and reports success only after Developer Mode is checked on the phone. If iOS refuses automatic enabling because a passcode is set, use **Settings → Privacy & Security → Developer Mode**, restart, confirm **Turn On**, and press Refresh. The app does not alter your passcode. You can also enable it manually from the start (iOS 16+).
 3. Mount the developer disk image once per boot if it isn't already mounted by Xcode. From this repository:
 
    ```sh
@@ -26,6 +26,8 @@ The launcher uses [uv](https://docs.astral.sh/uv/getting-started/installation/),
    Replace `YOUR_DEVICE_UDID` with the `UniqueDeviceID` from the first command. The image mount may download files and contact Apple's personalization service. iOS below 17 may require a compatible Xcode developer image. The app surfaces errors when Developer Mode or the image is missing.
 
 The pinned upstream API uses a persistent **PreferredRsdTunnel** for iOS 17+, with its no-root transport selection on macOS. Older iOS versions use `DtSimulateLocation` over lockdown. See [upstream tunnel requirements](https://doronz88.github.io/pymobiledevice3/guides/ios17-tunnels/) for other hosts and early iOS 17 limitations. This launcher targets macOS; the worker's async stdin pipe has not been tested on Windows.
+
+Developer Mode setup runs in a separate worker using the same `AmfiService.enable_developer_mode()` API as upstream's `amfi enable-developer-mode` command, including its reconnect/post-restart confirmation flow. The operation is limited to three minutes; after a timeout, check the phone's final confirmation, unlock it, and press Refresh. An already-enabled phone is detected without restarting it. Setup is disabled during an active spoof; restore first. The developer disk image remains a separate setup step. Stopping the server interrupts any pending host-side setup; check the phone's state manually afterward.
 
 ## Switch locations
 

@@ -331,7 +331,37 @@ a:hover {
     font-size:13px;
   }
 }
+.developer-setup {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-top:18px;
+  padding-top:16px;
+  border-top:1px solid #edf0f5;
+}
+.developer-setup p {
+  margin:0;
+  font-size:14px;
+  line-height:1.5;
+  overflow-wrap:anywhere;
+}
+.developer-setup .setup-note {
+  margin-top:5px;
+  font-size:12px;
+  color:var(--muted);
+}
+.setup-error {
+  color:#9b3d26;
+}
 @media(max-width:540px) {
+  .developer-setup {
+    flex-direction:column;
+    gap:10px;
+  }
+  .developer-setup button {
+    width:100%;
+  }
   main {
     padding:24px 20px;
   }

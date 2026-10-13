@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="location-token"]').content;
 let busy = false, ready = false, mode = 'unknown', activeUdid = null, selectedLabel = 'Manual coordinates';
 let devices = [], discoveryBusy = false;
+let setup = {state:'idle',udid:null,message:''};
 function message(text, error = false) { $('message').hidden = !text; $('message').textContent = text; $('message').className = error ? 'error' : ''; }
 async function api(path, data) {
   const response = await fetch(path, data ? { method: 'POST', headers: {'Content-Type':'application/json','X-Location-Token':token}, body: JSON.stringify(data) } : {});
@@ -17,11 +18,19 @@ function coordinates() {
 }
 function controls() {
   ready = !!devices.find(d => d.udid === $('device').value && d.ready);
-  $('spoof').disabled = busy || !ready || !coordinates();
-  $('restore').disabled = busy || !ready;
-  $('device').disabled = busy || (!!activeUdid && mode !== 'real');
+  const settingUp = setup.state === 'enabling';
+  $('spoof').disabled = busy || settingUp || !ready || !coordinates();
+  $('restore').disabled = busy || settingUp || !ready;
+  $('device').disabled = busy || settingUp || (!!activeUdid && mode !== 'real');
   $('refresh').disabled = busy || discoveryBusy;
   $('search').disabled = busy;
+  const device = devices.find(d => d.udid === $('device').value);
+  const alreadyEnabled = device?.developer_mode === true || (setup.udid === device?.udid && setup.state === 'enabled');
+  $('enable-developer-mode').disabled = busy || discoveryBusy || settingUp || !ready || alreadyEnabled || mode === 'spoofed';
+  $('enable-developer-mode').textContent = settingUp ? 'Enabling…' : 'Enable Developer Mode';
+  const setupVisible = setup.udid && (setup.udid === $('device').value || settingUp);
+  $('developer-status').className = setupVisible && setup.state === 'error' && !alreadyEnabled ? 'setup-error' : '';
+  $('developer-status').textContent = setupVisible && settingUp ? setup.message : alreadyEnabled ? 'Developer Mode enabled' : setupVisible && setup.state === 'error' ? setup.message : device?.developer_mode === false ? 'Developer Mode is off' : 'Developer Mode status unknown';
 }
 function destination(manual = false) {
   if (manual) selectedLabel = 'Manual coordinates';
@@ -31,13 +40,19 @@ function destination(manual = false) {
   controls();
 }
 function renderStatus(data) {
+  const previousSetup = setup.state;
   mode = data.mode; activeUdid = data.udid;
+  setup = data.developer_setup || {state:'idle',udid:null,message:''};
   if (activeUdid && mode !== 'real' && devices.some(d => d.udid === activeUdid)) $('device').value = activeUdid;
   const same = !data.udid || data.udid === $('device').value;
   $('status').className = `status ${same ? mode : 'unknown'}`;
   $('status-text').textContent = same && mode === 'spoofed' ? `Spoofing · ${data.destination.latitude.toFixed(6)}, ${data.destination.longitude.toFixed(6)}` : same && mode === 'real' ? 'Real location · simulation cleared' : 'Location status unknown';
   if (data.error) { $('status').className = 'status error'; $('status-text').textContent = data.error; }
   controls();
+  if (previousSetup === 'enabling' && setup.state !== 'enabling') {
+    message(setup.message, setup.state === 'error');
+    if (setup.state === 'enabled') refresh(true);
+  }
 }
 async function refresh(silent = false) {
   if (discoveryBusy || busy) return;
@@ -47,11 +62,12 @@ async function refresh(silent = false) {
     const data = await api('/api/devices'); devices = data.devices;
     const options = [new Option(devices.length ? 'Choose an iPhone' : 'Connect an iPhone', '')];
     for (const d of devices) options.push(new Option(`${d.name} · iOS ${d.version}${d.ready ? '' : ' · Trust required'}`, d.udid));
-    if (activeUdid && !devices.some(d => d.udid === activeUdid)) options.push(new Option('Active iPhone disconnected', activeUdid));
+    const pinnedUdid = setup.state === 'enabling' ? setup.udid : activeUdid && mode !== 'real' ? activeUdid : null;
+    if (pinnedUdid && !devices.some(d => d.udid === pinnedUdid)) options.push(new Option(setup.state === 'enabling' ? 'iPhone restarting — waiting to reconnect' : 'Active iPhone disconnected', pinnedUdid));
     $('device').replaceChildren(...options);
-    $('device').value = activeUdid && mode !== 'real' ? activeUdid : devices.some(d => d.udid === prior) ? prior : devices.length === 1 ? devices[0].udid : '';
+    $('device').value = pinnedUdid || (devices.some(d => d.udid === prior) ? prior : devices.length === 1 ? devices[0].udid : '');
     const state = await api('/api/status'); renderStatus(state);
-    if (activeUdid && !devices.some(d => d.udid === activeUdid)) { $('status').className = 'status error'; $('status-text').textContent = 'iPhone disconnected · location status unknown. Reconnect and restore real location.'; }
+    if (activeUdid && !devices.some(d => d.udid === activeUdid) && setup.state !== 'enabling') { $('status').className = 'status error'; $('status-text').textContent = 'iPhone disconnected · location status unknown. Reconnect and restore real location.'; }
     if (!silent) message(devices.length ? '' : 'No iPhone found. Connect by USB, unlock it, and tap Trust.');
   } catch (err) {
     devices = []; controls(); $('status').className = 'status error'; $('status-text').textContent = 'Device discovery unavailable';
@@ -59,6 +75,15 @@ async function refresh(silent = false) {
   } finally { discoveryBusy = false; controls(); }
 }
 $('refresh').addEventListener('click', () => refresh());
+$('enable-developer-mode').addEventListener('click', async () => {
+  const udid = $('device').value;
+  busy = true; controls(); message('Starting Developer Mode setup…');
+  try {
+    setup = await api('/api/developer-mode/enable', {udid});
+    message(setup.message);
+  } catch (err) { message(err.message,true); }
+  finally { busy = false; controls(); }
+});
 $('device').addEventListener('change', () => { renderStatus({mode:'unknown',udid:null}); message(''); });
 for (const field of ['latitude','longitude']) $(field).addEventListener('input', () => destination(true));
 $('search-form').addEventListener('submit', async event => {

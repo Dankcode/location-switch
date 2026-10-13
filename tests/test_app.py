@@ -113,3 +113,113 @@ async def test_developer_mode_off_blocks_location_session(monkeypatch):
     monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
     with pytest.raises(RuntimeError, match="Developer Mode is off"):
         await serve("test-device-0001")
+
+
+def test_developer_mode_endpoint_is_protected_and_targets_selected_phone(client, monkeypatch):
+    enable = AsyncMock(return_value={"state":"enabling", "udid":"test-device-0001", "message":"Restarting"})
+    monkeypatch.setattr(server.controller, "enable_developer_mode", enable)
+    target = {"udid":"test-device-0001"}
+    assert client.post("/api/developer-mode/enable", json=target).status_code == 403
+    assert client.post("/api/developer-mode/enable", json={"udid":"bad;command"}, headers=headers()).status_code == 422
+    response = client.post("/api/developer-mode/enable", json=target, headers=headers())
+    assert response.status_code == 202
+    assert response.json()["state"] == "enabling"
+    enable.assert_awaited_once_with("test-device-0001")
+
+
+async def test_setup_stays_pending_until_verified_and_blocks_location_changes(monkeypatch):
+    controller = DeviceController()
+    gate = asyncio.Event()
+    async def enable(udid):
+        assert udid == "test-device-0001"
+        await gate.wait()
+    monkeypatch.setattr(controller, "_enable_command", enable)
+    result = await controller.enable_developer_mode("test-device-0001")
+    assert result["state"] == "enabling"
+    with pytest.raises(DeviceError, match="already running"):
+        await controller.enable_developer_mode("test-device-0001")
+    with pytest.raises(DeviceError, match="setup to finish"):
+        await controller.change("test-device-0001", "set", 1, 2)
+    gate.set()
+    await controller.setup_task
+    assert controller.status()["developer_setup"]["state"] == "enabled"
+    assert controller.udid is None  # setup alone does not reserve a location session
+
+
+async def test_setup_failure_and_active_spoof_guard(monkeypatch):
+    controller = DeviceController()
+    controller.mode = "spoofed"
+    with pytest.raises(DeviceError, match="Restore"):
+        await controller.enable_developer_mode("test-device-0001")
+    controller.mode = "unknown"
+    monkeypatch.setattr(controller, "_enable_command", AsyncMock(side_effect=DeviceError("Passcode is set")))
+    await controller.enable_developer_mode("test-device-0001")
+    await controller.setup_task
+    assert controller.setup["state"] == "error"
+    assert "Passcode" in controller.setup["message"]
+
+
+async def test_setup_worker_already_enabled_does_not_restart(monkeypatch):
+    from location_switch.worker import enable_developer_mode
+    import pymobiledevice3.lockdown
+    from pymobiledevice3.services.amfi import AmfiService
+    lockdown = AsyncMock()
+    lockdown.has_developer_mode = True
+    lockdown.__aenter__.return_value = lockdown
+    lockdown.get_developer_mode_status.return_value = True
+    monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
+    enable = AsyncMock()
+    monkeypatch.setattr(AmfiService, "enable_developer_mode", enable)
+    await enable_developer_mode("test-device-0001")
+    enable.assert_not_awaited()
+
+
+async def test_setup_worker_passcode_error_explains_manual_path(monkeypatch):
+    from location_switch.worker import enable_developer_mode
+    import pymobiledevice3.lockdown
+    from pymobiledevice3.services.amfi import AmfiService
+    from pymobiledevice3.exceptions import DeviceHasPasscodeSetError
+    lockdown = AsyncMock()
+    lockdown.has_developer_mode = True
+    lockdown.__aenter__.return_value = lockdown
+    lockdown.get_developer_mode_status.return_value = False
+    monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
+    monkeypatch.setattr(AmfiService, "enable_developer_mode", AsyncMock(side_effect=DeviceHasPasscodeSetError()))
+    with pytest.raises(RuntimeError, match="passcode is set"):
+        await enable_developer_mode("test-device-0001")
+
+
+@pytest.mark.parametrize("verified", [True, False])
+async def test_setup_worker_verifies_after_upstream_enable(monkeypatch, verified):
+    from location_switch.worker import enable_developer_mode
+    import pymobiledevice3.lockdown
+    from pymobiledevice3.services.amfi import AmfiService
+    lockdown = AsyncMock()
+    lockdown.has_developer_mode = True
+    lockdown.__aenter__.return_value = lockdown
+    lockdown.get_developer_mode_status.side_effect = [False, verified]
+    create = AsyncMock(return_value=lockdown)
+    monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", create)
+    enable = AsyncMock()
+    monkeypatch.setattr(AmfiService, "enable_developer_mode", enable)
+    if verified:
+        await enable_developer_mode("test-device-0001")
+    else:
+        with pytest.raises(RuntimeError, match="still off"):
+            await enable_developer_mode("test-device-0001")
+    enable.assert_awaited_once()
+    assert create.await_count == 2
+    create.assert_awaited_with(serial="test-device-0001", autopair=False)
+
+
+async def test_shutdown_cancels_pending_setup(monkeypatch):
+    controller = DeviceController()
+    gate = asyncio.Event()
+    async def enable(udid):
+        await gate.wait()
+    monkeypatch.setattr(controller, "_enable_command", enable)
+    await controller.enable_developer_mode("test-device-0001")
+    await asyncio.sleep(0)
+    await controller.shutdown()
+    assert controller.setup_task.cancelled()
+    assert controller.setup["state"] == "error"

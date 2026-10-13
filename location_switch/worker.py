@@ -24,12 +24,37 @@ async def discover():
                 serial=device.serial, autopair=False, connection_type=device.connection_type
             ) as lockdown:
                 info = lockdown.short_info
+                developer_mode = None
+                with suppress(Exception):
+                    developer_mode = not lockdown.has_developer_mode or await lockdown.get_developer_mode_status()
                 result.append({"udid": device.serial, "name": info.get("DeviceName", "iPhone"),
-                               "version": info.get("ProductVersion", "unknown"), "ready": True})
+                               "version": info.get("ProductVersion", "unknown"), "ready": True,
+                               "developer_mode": developer_mode})
         except Exception as exc:
             result.append({"udid": device.serial, "name": "Untrusted iPhone", "version": "unknown",
                            "ready": False, "error": str(exc)})
     emit({"devices": result})
+
+
+async def enable_developer_mode(udid):
+    """Use the same AMFI flow as upstream's amfi enable-developer-mode CLI."""
+    from pymobiledevice3.lockdown import create_using_usbmux
+    from pymobiledevice3.services.amfi import AmfiService
+    from pymobiledevice3.exceptions import DeviceHasPasscodeSetError
+
+    async with await create_using_usbmux(serial=udid, autopair=False) as lockdown:
+        if not lockdown.has_developer_mode or await lockdown.get_developer_mode_status():
+            emit({"enabled": True})
+            return
+        try:
+            await AmfiService(lockdown).enable_developer_mode()
+        except DeviceHasPasscodeSetError as exc:
+            raise RuntimeError("iOS refused automatic enabling because a passcode is set. Enable Developer Mode in Settings → Privacy & Security, restart, and confirm Turn On. Your passcode has not been changed.") from exc
+    # The AMFI flow reconnects internally; independently verify the selected phone.
+    async with await create_using_usbmux(serial=udid, autopair=False) as lockdown:
+        if not await lockdown.get_developer_mode_status():
+            raise RuntimeError("Developer Mode is still off. Confirm Turn On after the restart, unlock your iPhone, and press Refresh.")
+    emit({"enabled": True})
 
 
 async def serve(udid):
@@ -98,7 +123,13 @@ async def serve(udid):
 
 if __name__ == "__main__":
     try:
-        asyncio.run(discover() if sys.argv[1] == "list" else serve(sys.argv[2]))
+        if sys.argv[1] == "list":
+            operation = discover()
+        elif sys.argv[1] == "enable-developer-mode":
+            operation = enable_developer_mode(sys.argv[2])
+        else:
+            operation = serve(sys.argv[2])
+        asyncio.run(operation)
     except Exception as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"})
         sys.exit(1)

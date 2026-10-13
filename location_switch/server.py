@@ -95,4 +95,9 @@ async def restore(data: Target):
     return await controller.change(data.udid, "clear")
 
 
+@app.post("/api/developer-mode/enable", status_code=202)
+async def enable_developer_mode(data: Target):
+    return await controller.enable_developer_mode(data.udid)
+
+
 app.mount("/static", StaticFiles(directory=ROOT), name="static")

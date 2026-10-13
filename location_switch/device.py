@@ -18,6 +18,9 @@ class DeviceController:
         self.error = None
         self.stderr_task = None
         self.diagnostics = ""
+        self.setup = {"state": "idle", "udid": None, "message": ""}
+        self.setup_task = None
+        self.setup_process = None
 
     async def devices(self):
         process = await asyncio.create_subprocess_exec(
@@ -41,7 +44,58 @@ class DeviceController:
         if self.process and self.process.returncode is not None:
             self.mode = "unknown"
             self.error = "Device session ended. Reconnect and restore real location to confirm recovery."
-        return {"mode": self.mode, "udid": self.udid, "destination": self.destination, "error": self.error}
+        return {"mode": self.mode, "udid": self.udid, "destination": self.destination,
+                "error": self.error, "developer_setup": self.setup.copy()}
+
+    async def enable_developer_mode(self, udid):
+        async with self.lock:
+            if self.setup["state"] == "enabling":
+                raise DeviceError("Developer Mode setup is already running. Wait for the iPhone to reconnect.")
+            if self.mode == "spoofed":
+                raise DeviceError("Restore real location before enabling Developer Mode, which may restart the iPhone.")
+            if self.udid and self.udid != udid and self.mode != "real":
+                raise DeviceError("Reconnect and restore the current iPhone before setting up another device.")
+            await self._close()
+            if self.mode == "real":
+                self.udid = None
+            self.mode = "unknown"
+            self.error = None
+            self.setup = {"state": "enabling", "udid": udid,
+                          "message": "Requesting Developer Mode. Your iPhone may restart; keep it connected and unlock it after restarting."}
+            self.setup_task = asyncio.create_task(self._enable_in_background(udid))
+            return self.setup.copy()
+
+    async def _enable_command(self, udid):
+        self.setup_process = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "location_switch.worker", "enable-developer-mode", udid,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            stdout, stderr = await asyncio.wait_for(self.setup_process.communicate(), 180)
+            try:
+                result = json.loads(stdout.decode().strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                raise DeviceError(stderr.decode(errors="replace")[-1200:] or "Developer Mode setup failed.")
+            if result.get("error") or self.setup_process.returncode or result.get("enabled") is not True:
+                raise DeviceError(result.get("error", "The phone did not confirm Developer Mode is enabled."))
+        except asyncio.TimeoutError as exc:
+            raise DeviceError("Setup timed out waiting for the iPhone. Unlock it, confirm Turn On after restarting, and press Refresh to check its status.") from exc
+        finally:
+            if self.setup_process.returncode is None:
+                self.setup_process.kill()
+                await self.setup_process.communicate()
+            self.setup_process = None
+
+    async def _enable_in_background(self, udid):
+        try:
+            await self._enable_command(udid)
+            self.setup = {"state": "enabled", "udid": udid,
+                          "message": "Developer Mode enabled and verified. Mount the developer disk image if needed before spoofing."}
+        except asyncio.CancelledError:
+            self.setup = {"state": "error", "udid": udid,
+                          "message": "Setup interrupted. Unlock your iPhone and check Developer Mode in Settings."}
+            raise
+        except Exception as exc:
+            self.setup = {"state": "error", "udid": udid, "message": str(exc)}
 
     async def _drain_stderr(self):
         while data := await self.process.stderr.read(1024):
@@ -72,6 +126,8 @@ class DeviceController:
 
     async def change(self, udid, action, latitude=None, longitude=None, label=None):
         async with self.lock:
+            if self.setup["state"] == "enabling":
+                raise DeviceError("Wait for Developer Mode setup to finish before changing location.")
             if self.udid and self.udid != udid and self.mode != "real":
                 raise DeviceError("Restore real location on the current device before selecting another iPhone.")
             try:
@@ -103,6 +159,10 @@ class DeviceController:
                 raise DeviceError(str(exc)) from exc
 
     async def shutdown(self):
+        if self.setup_task and not self.setup_task.done():
+            self.setup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self.setup_task
         async with self.lock:
             if self.process and self.process.returncode is None and self.mode == "spoofed":
                 with suppress(Exception):
