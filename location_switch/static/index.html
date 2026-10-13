@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="location-token" content="__TOKEN__">
+  <title>Location Switch</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M57 7 8 29l24 3 3 24Z"/></svg>
+    <h1>Location Switch</h1><p>Choose where your iPhone appears.</p>
+  </header>
+  <section aria-labelledby="device-label">
+    <label id="device-label" for="device" class="strong">Connected device</label>
+    <div class="row device-row"><select id="device"><option value="">Connect an iPhone</option></select><button id="refresh" class="quiet">Refresh</button></div>
+    <p id="status" class="status" role="status"><span class="dot"></span><span id="status-text">Location status unknown</span></p>
+  </section>
+  <section class="destination" aria-labelledby="destination-title">
+    <h2 id="destination-title">Spoof destination</h2>
+    <form id="search-form" class="row"><input id="address" aria-label="Address or place" placeholder="Search an address or place" minlength="3" maxlength="250" required><button id="search" type="submit">Search</button></form>
+    <div id="results" class="results" aria-label="Address results" hidden></div>
+    <p class="helper">Or enter coordinates directly.</p>
+    <div class="coordinates">
+      <div><label for="latitude">Latitude</label><input id="latitude" type="number" min="-90" max="90" step="any" placeholder="e.g. 37.7749" inputmode="decimal"></div>
+      <div><label for="longitude">Longitude</label><input id="longitude" type="number" min="-180" max="180" step="any" placeholder="e.g. -122.4194" inputmode="decimal"></div>
+    </div>
+    <div class="selection"><h3>Selected destination</h3><p id="selected">No destination selected</p></div>
+    <div class="actions"><button id="spoof" disabled>Use spoofed location</button><button id="restore" class="outline" disabled>Restore real location</button></div>
+    <p id="message" role="alert" hidden></p>
+  </section>
+  <footer><p>Connect by USB <span>•</span> Trust this computer <span>•</span> Enable Developer Mode</p><p>Powered by <a href="https://github.com/doronz88/pymobiledevice3" target="_blank" rel="noreferrer">pymobiledevice3</a></p><p class="attribution">Address search: Photon · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>. Searches are sent to Photon.</p></footer>
+</main>
+</body>
+</html>
