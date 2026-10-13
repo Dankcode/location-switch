@@ -5,7 +5,7 @@ root = Path(SPECPATH).parent
 datas = [(str(root / 'location_switch/static'), 'location_switch/static')]
 binaries = []
 hiddenimports = collect_submodules('location_switch') + collect_submodules('uvicorn')
-for package in ('pymobiledevice3', 'pytcp'):
+for package in ('pymobiledevice3', 'pytcp', 'pytun_pmd3'):
     package_data, package_binaries, package_imports = collect_all(package)
     datas += package_data
     binaries += package_binaries
