@@ -232,3 +232,32 @@ async def test_shutdown_cancels_pending_setup(monkeypatch):
     await controller.shutdown()
     assert controller.setup_task.cancelled()
     assert controller.setup["state"] == "error"
+
+
+def test_phone_panel_requires_password_and_preserves_post_origin_check(client,monkeypatch):
+    import base64
+    monkeypatch.setattr(server,"PHONE_ACCESS",True)
+    monkeypatch.setattr(server,"ACCESS_KEY","test-password-12345")
+    monkeypatch.setattr(server,"local_phone_host",lambda host:host == "localhost")
+    assert client.get('/').status_code == 401
+    auth='Basic '+base64.b64encode(b'location:test-password-12345').decode()
+    assert client.get('/',headers={'Authorization':auth}).status_code == 200
+    assert client.get('/',headers={'Authorization':'Basic !!!'}).status_code == 401
+    assert client.get('/',headers={'Authorization':auth,'Host':'evil.example'}).status_code == 400
+    assert client.post('/api/restore',json={'udid':'test-device-0001'},headers={'Authorization':auth}).status_code == 403
+
+
+def test_manual_pair_endpoint_requires_authorization(client,monkeypatch):
+    pair=AsyncMock(return_value={'state':'pairing','udid':'test-device-0001','message':'Tap Trust'})
+    monkeypatch.setattr(server.controller,'pair_device',pair)
+    assert client.post('/api/device/pair',json={'udid':'test-device-0001'}).status_code == 403
+    assert client.post('/api/device/pair',json={'udid':'test-device-0001'},headers=headers()).status_code == 202
+    pair.assert_awaited_once_with('test-device-0001')
+
+
+def test_map_is_lazy_and_vendor_assets_are_cached(client):
+    assert '/vendor/leaflet' not in client.get('/').text
+    assert client.get('/api/config').json()['tile_url'].startswith('https://tile.openstreetmap.org/')
+    vendor=client.get('/static/vendor/leaflet/leaflet.js')
+    assert vendor.status_code == 200
+    assert 'max-age=604800' in vendor.headers['cache-control']

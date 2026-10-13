@@ -2,6 +2,8 @@
 import asyncio
 import json
 import sys
+import os
+import platform
 from contextlib import AsyncExitStack, suppress
 
 
@@ -28,7 +30,7 @@ async def discover():
                 with suppress(Exception):
                     developer_mode = not lockdown.has_developer_mode or await lockdown.get_developer_mode_status()
                 result.append({"udid": device.serial, "name": info.get("DeviceName", "iPhone"),
-                               "version": info.get("ProductVersion", "unknown"), "ready": True,
+                               "version": info.get("ProductVersion", "unknown"), "ready": bool(lockdown.paired),
                                "developer_mode": developer_mode})
         except Exception as exc:
             result.append({"udid": device.serial, "name": "Untrusted iPhone", "version": "unknown",
@@ -59,13 +61,25 @@ async def enable_developer_mode(udid):
     emit({"enabled": True})
 
 
+async def reveal_developer_mode(udid):
+    from pymobiledevice3.lockdown import create_using_usbmux
+    from pymobiledevice3.services.amfi import AmfiService
+    async with await create_using_usbmux(serial=udid, autopair=False) as lockdown:
+        await AmfiService(lockdown).reveal_developer_mode_option_in_ui()
+    emit({"revealed":True})
+
+
+async def pair_device(udid):
+    from pymobiledevice3.lockdown import create_using_usbmux
+    async with await create_using_usbmux(serial=udid,autopair=True,pair_timeout=120) as lockdown:
+        if not lockdown.paired:
+            raise RuntimeError("Unlock the iPhone and tap Trust, then retry pairing.")
+    emit({"paired":True})
+
+
 async def serve(udid):
     from pymobiledevice3.lockdown import create_using_usbmux
-    from pymobiledevice3.remote.rsd_tunnel import PreferredRsdTunnel
-    from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
-    from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
     from pymobiledevice3.services.simulate_location import DtSimulateLocation
-    from pymobiledevice3.exceptions import InvalidServiceError
 
     async with AsyncExitStack() as stack:
         dvt = None
@@ -73,13 +87,17 @@ async def serve(udid):
         if lockdown.has_developer_mode and not await lockdown.get_developer_mode_status():
             raise RuntimeError("Developer Mode is off. Enable Settings → Privacy & Security → Developer Mode, restart, confirm Turn On, then unlock and reconnect your iPhone.")
         if int(lockdown.product_version.split(".")[0]) >= 17:
-            provider = await stack.enter_async_context(PreferredRsdTunnel(serial=udid, autopair=False))
-            try:
-                dvt = await stack.enter_async_context(DvtProvider(provider))
-            except InvalidServiceError as exc:
-                raise RuntimeError("Developer location service unavailable. Mount the developer disk image using the mounter auto-mount command in README.md, then retry.") from exc
+            from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+            provider = await open_developer_provider(stack, udid, lockdown.product_version)
+            dvt = await prepare_dvt(stack,provider,udid,lockdown.product_version)
             location = await stack.enter_async_context(LocationSimulation(dvt))
         else:
+            if os.getenv("LOCATION_AUTO_MOUNT") == "1":
+                from pymobiledevice3.services.mobile_image_mounter import auto_mount
+                from pymobiledevice3.exceptions import AlreadyMountedError
+                emit({"progress":"Preparing developer image…"})
+                with suppress(AlreadyMountedError):
+                    await auto_mount(lockdown)
             location = DtSimulateLocation(lockdown)
         emit({"ready": True})
         reader = asyncio.StreamReader()
@@ -123,12 +141,51 @@ async def serve(udid):
                     print(f"Could not restore location on exit: {exc}", file=sys.stderr)
 
 
+async def prepare_dvt(stack, provider, udid, version):
+    from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
+    from pymobiledevice3.exceptions import InvalidServiceError, AlreadyMountedError
+    try:
+        return await stack.enter_async_context(DvtProvider(provider))
+    except InvalidServiceError as exc:
+        if os.getenv("LOCATION_AUTO_MOUNT") != "1":
+            raise RuntimeError("Developer location service unavailable. Mount the developer disk image using the mounter auto-mount command in README.md, then retry.") from exc
+    from pymobiledevice3.services.mobile_image_mounter import auto_mount
+    emit({"progress":"Preparing developer image. First setup may take several minutes."})
+    with suppress(AlreadyMountedError):
+        await auto_mount(provider)
+    await stack.aclose()  # stop the old userspace stack before opening a new tunnel
+    provider = await open_developer_provider(stack,udid,version)
+    return await stack.enter_async_context(DvtProvider(provider))
+
+
+async def open_developer_provider(stack, udid, version):
+    """Early iOS 17 on Linux requires tunneld; newer iOS uses the root-free tunnel."""
+    from packaging.version import Version
+    transport = os.getenv("LOCATION_TUNNEL", "auto")
+    if transport not in ("auto", "tunneld"):
+        raise RuntimeError("LOCATION_TUNNEL must be auto or tunneld")
+    early_linux = platform.system() == "Linux" and Version(version) < Version("17.4")
+    if transport == "tunneld" or early_linux:
+        from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
+        provider = await get_tunneld_device_by_udid(udid)
+        if provider is None:
+            raise RuntimeError("No tunnel for this iPhone. Start pymobiledevice3 remote tunneld on this host, then retry.")
+        stack.push_async_callback(provider.close)
+        return provider
+    from pymobiledevice3.remote.rsd_tunnel import PreferredRsdTunnel
+    return await stack.enter_async_context(PreferredRsdTunnel(serial=udid, autopair=False))
+
+
 if __name__ == "__main__":
     try:
         if sys.argv[1] == "list":
             operation = discover()
         elif sys.argv[1] == "enable-developer-mode":
             operation = enable_developer_mode(sys.argv[2])
+        elif sys.argv[1] == "reveal-developer-mode":
+            operation = reveal_developer_mode(sys.argv[2])
+        elif sys.argv[1] == "pair":
+            operation = pair_device(sys.argv[2])
         else:
             operation = serve(sys.argv[2])
         asyncio.run(operation)

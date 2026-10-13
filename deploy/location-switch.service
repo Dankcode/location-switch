@@ -1,0 +1,17 @@
+[Unit]
+Description=Location Switch iPhone utility
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/location-switch
+ExecStart=%h/location-switch/.venv/bin/python -m location_switch --no-browser --low-memory --phone-access --auto-reveal --auto-mount
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=true
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

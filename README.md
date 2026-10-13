@@ -12,10 +12,12 @@ Dependencies are already installed in this checkout. Double-click **start.comman
 
 The launcher uses [uv](https://docs.astral.sh/uv/getting-started/installation/), installs the locked dependencies if needed, and opens **http://127.0.0.1:8765**. It requires Python 3.11+ (uv can provide Python). Keep the terminal window running. If an instance is already running, use its existing browser tab rather than starting a second instance.
 
+For **Linux / Raspberry Pi Zero 2 W**, use `./scripts/install-linux.sh`, then `./start.sh --no-browser --low-memory --phone-access --auto-reveal --auto-mount`. Read [the Pi guide](docs/raspberry-pi.md) for 64-bit OS requirements, USB OTG wiring, Safari access through USB Personal Hotspot/Wi-Fi, password setup, iOS tunnel differences and systemd startup. Pi hardware validation is pending.
+
 ## Prepare the iPhone
 
 1. Connect it by USB, unlock it, and tap **Trust** when asked. If Trust is not prompted, connect once through Finder. Press Refresh in the app.
-2. Press **Enable Developer Mode** in the app. **Xcode is not required:** the app first uses pymobiledevice3's AMFI reveal action to expose the Settings toggle, then tries its enable flow. This may restart the selected phone. Keep it connected and unlock it after the restart. The page polls progress and reports success only after Developer Mode is checked on the phone. If a passcode blocks automatic enabling, use the exposed **Settings → Privacy & Security → Developer Mode** toggle, restart, confirm **Turn On**, and press Refresh. The app does not alter your passcode. You can also enable it manually from the start (iOS 16+).
+2. Press **Enable Dev Mode** in the app. **Xcode is not required:** the app first uses pymobiledevice3's AMFI reveal action to expose the Settings toggle, then tries its enable flow. This may restart the selected phone. Keep it connected and unlock it after the restart. The page polls progress and reports success only after Developer Mode is checked on the phone. If a passcode blocks automatic enabling, use the exposed **Settings → Privacy & Security → Developer Mode** toggle, restart, confirm **Turn On**, and press Refresh. The app does not alter your passcode. You can also enable it manually from the start (iOS 16+).
 3. Mount the developer disk image once per boot if it isn't already mounted by Xcode. From this repository:
 
    ```sh
@@ -33,10 +35,10 @@ Developer Mode setup runs in a separate worker using the same `AmfiService.enabl
 
 1. Select the connected iPhone.
 2. Search a full address (include city and country) and select the matching result, or enter **WGS84 latitude / longitude** directly.
-3. Click **Use spoofed location**. The status changes only after pymobiledevice3 completes the set operation.
-4. Click **Restore real location** to send the stop-simulation command. The destination fields remain ready, so you can click Use spoofed location again.
+3. Click **Spoof location**. The status changes only after pymobiledevice3 completes the set operation.
+4. Click **Real location** to send the stop-simulation command. The destination fields remain ready, so you can click Use spoofed location again.
 
-The connection stays open for fast subsequent switches. Initial connection/tunnel setup can take several seconds; app location updates also depend on iOS and each app's refresh behavior. The page polls session status every two seconds and device discovery every six seconds. There is no guaranteed instantaneous switch across every iPhone app.
+The connection stays open for fast subsequent switches. Initial connection/tunnel setup can take several seconds; app location updates also depend on iOS and each app's refresh behavior. The page polls session status every two seconds. Device discovery is shared, serialized and cached for 20 seconds (60 in low-memory mode); manual Refresh forces a scan. There is no guaranteed instantaneous switch across every iPhone app.
 
 **Real location means simulation is cleared.** This tool does not read the iPhone's live GPS, and does not substitute the Mac/browser position. Status reflects command completion and connection state, not an independent measurement of the iPhone's GPS. On DVT, the clear operation sends a stop command without a device reply, matching upstream's API.
 
@@ -44,9 +46,13 @@ One device can be active at a time. Restore it before switching to another. If t
 
 ## Address search and privacy
 
+**Show map** opens an optional [Leaflet 1.9.4](https://leafletjs.com/) map, bundled locally with its license. It is collapsed by default and the library/tiles are not loaded until you open it. Click the map to select coordinates; this does not apply a spoof until you press Spoof location. Closing it removes the map and tile layers. Map rendering runs in the browser, not on the Pi.
+
+Viewing a map sends the visible area's tile requests to OpenStreetMap. Attribution is visible; the browser honors tile caching and no offline downloading/prefetching is provided, following the [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/). Public tiles have no availability guarantee. To select a different HTTPS OSM-derived tile service without updating code, set `LOCATION_TILE_URL` to a `{z}/{x}/{y}` tile URL. Coordinate entry works without the map.
+
 Search uses [Photon](https://github.com/komoot/photon)'s public demo API, with explicit searches, a one-request-per-second limit and an in-memory cache. It needs internet access and has no availability guarantee. Results are from [OpenStreetMap contributors](https://www.openstreetmap.org/copyright). Verify the selected address and coordinates; coverage and building precision vary. For locations in China, enter WGS84 coordinates rather than GCJ-02 or BD-09 coordinates from local map providers.
 
-Address search text is sent to Photon. Direct coordinate entry does not use a geocoding service. The last selected destination is saved in this browser's local storage. The server binds to loopback only, rejects foreign hosts, and requires an origin check and page token for POST requests. There is no hosted service or account.
+Address search text is sent to Photon. Direct coordinate entry does not use a geocoding service. The last selected destination is saved in this browser's local storage. The default Mac/local server binds to loopback. Opt-in phone mode listens on the Pi interfaces and requires a panel password. Both modes reject foreign hosts, and requires an origin check and page token for POST requests. There is no hosted service or account.
 
 To use your own Photon endpoint without modifying code:
 
