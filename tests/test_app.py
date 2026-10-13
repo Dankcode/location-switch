@@ -170,8 +170,11 @@ async def test_setup_worker_already_enabled_does_not_restart(monkeypatch):
     monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
     enable = AsyncMock()
     monkeypatch.setattr(AmfiService, "enable_developer_mode", enable)
+    reveal = AsyncMock()
+    monkeypatch.setattr(AmfiService, "reveal_developer_mode_option_in_ui", reveal)
     await enable_developer_mode("test-device-0001")
     enable.assert_not_awaited()
+    reveal.assert_not_awaited()
 
 
 async def test_setup_worker_passcode_error_explains_manual_path(monkeypatch):
@@ -185,8 +188,11 @@ async def test_setup_worker_passcode_error_explains_manual_path(monkeypatch):
     lockdown.get_developer_mode_status.return_value = False
     monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", AsyncMock(return_value=lockdown))
     monkeypatch.setattr(AmfiService, "enable_developer_mode", AsyncMock(side_effect=DeviceHasPasscodeSetError()))
-    with pytest.raises(RuntimeError, match="passcode is set"):
+    reveal = AsyncMock()
+    monkeypatch.setattr(AmfiService, "reveal_developer_mode_option_in_ui", reveal)
+    with pytest.raises(RuntimeError, match="revealed without Xcode"):
         await enable_developer_mode("test-device-0001")
+    reveal.assert_awaited_once()
 
 
 @pytest.mark.parametrize("verified", [True, False])
@@ -202,12 +208,15 @@ async def test_setup_worker_verifies_after_upstream_enable(monkeypatch, verified
     monkeypatch.setattr(pymobiledevice3.lockdown, "create_using_usbmux", create)
     enable = AsyncMock()
     monkeypatch.setattr(AmfiService, "enable_developer_mode", enable)
+    reveal = AsyncMock()
+    monkeypatch.setattr(AmfiService, "reveal_developer_mode_option_in_ui", reveal)
     if verified:
         await enable_developer_mode("test-device-0001")
     else:
         with pytest.raises(RuntimeError, match="still off"):
             await enable_developer_mode("test-device-0001")
     enable.assert_awaited_once()
+    reveal.assert_awaited_once()
     assert create.await_count == 2
     create.assert_awaited_with(serial="test-device-0001", autopair=False)
 

@@ -46,10 +46,12 @@ async def enable_developer_mode(udid):
         if not lockdown.has_developer_mode or await lockdown.get_developer_mode_status():
             emit({"enabled": True})
             return
+        amfi = AmfiService(lockdown)
+        await amfi.reveal_developer_mode_option_in_ui()
         try:
-            await AmfiService(lockdown).enable_developer_mode()
+            await amfi.enable_developer_mode()
         except DeviceHasPasscodeSetError as exc:
-            raise RuntimeError("iOS refused automatic enabling because a passcode is set. Enable Developer Mode in Settings → Privacy & Security, restart, and confirm Turn On. Your passcode has not been changed.") from exc
+            raise RuntimeError("The Developer Mode toggle has been revealed without Xcode. A passcode blocks automatic enabling: open Settings → Privacy & Security → Developer Mode, turn it on, restart, and confirm Turn On. Your passcode has not been changed.") from exc
     # The AMFI flow reconnects internally; independently verify the selected phone.
     async with await create_using_usbmux(serial=udid, autopair=False) as lockdown:
         if not await lockdown.get_developer_mode_status():

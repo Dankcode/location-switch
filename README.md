@@ -15,7 +15,7 @@ The launcher uses [uv](https://docs.astral.sh/uv/getting-started/installation/),
 ## Prepare the iPhone
 
 1. Connect it by USB, unlock it, and tap **Trust** when asked. If Trust is not prompted, connect once through Finder. Press Refresh in the app.
-2. Press **Enable Developer Mode** in the app. This uses pymobiledevice3's AMFI flow and may restart the selected phone. Keep it connected and unlock it after the restart. The page polls progress and reports success only after Developer Mode is checked on the phone. If iOS refuses automatic enabling because a passcode is set, use **Settings → Privacy & Security → Developer Mode**, restart, confirm **Turn On**, and press Refresh. The app does not alter your passcode. You can also enable it manually from the start (iOS 16+).
+2. Press **Enable Developer Mode** in the app. **Xcode is not required:** the app first uses pymobiledevice3's AMFI reveal action to expose the Settings toggle, then tries its enable flow. This may restart the selected phone. Keep it connected and unlock it after the restart. The page polls progress and reports success only after Developer Mode is checked on the phone. If a passcode blocks automatic enabling, use the exposed **Settings → Privacy & Security → Developer Mode** toggle, restart, confirm **Turn On**, and press Refresh. The app does not alter your passcode. You can also enable it manually from the start (iOS 16+).
 3. Mount the developer disk image once per boot if it isn't already mounted by Xcode. From this repository:
 
    ```sh
