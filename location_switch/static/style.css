@@ -75,3 +75,4 @@ a:hover { text-decoration:underline; }
   input,select { font-size:16px; }
   #map { height:200px; }
 }
+.drift-option{display:flex;align-items:center;gap:7px;margin:10px 0 12px;font-size:12px;cursor:pointer}.drift-option input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--blue,#175cff)}.drift-option span{margin-left:auto;color:#68758a;font-size:11px}

@@ -105,6 +105,7 @@ class Destination(Target):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     label: str = Field(default="Manual coordinates", max_length=500)
+    drift_radius_m: float = Field(default=0, ge=0, le=20, allow_inf_nan=False)
 
 
 class Search(BaseModel):
@@ -143,7 +144,7 @@ async def search(data: Search):
 
 @app.post("/api/spoof")
 async def spoof(data: Destination):
-    return await controller.change(data.udid, "set", data.latitude, data.longitude, data.label)
+    return await controller.change(data.udid, "set", data.latitude, data.longitude, data.label, drift_radius_m=data.drift_radius_m)
 
 
 @app.post("/api/restore")

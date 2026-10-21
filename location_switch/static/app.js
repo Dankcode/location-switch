@@ -26,6 +26,7 @@ function controls() {
   $('device').disabled = busy || settingUp || (!!activeUdid && mode !== 'real');
   $('refresh').disabled = busy || discoveryBusy;
   $('search').disabled = busy;
+  $('drift').disabled = busy || settingUp;
   const device = devices.find(d => d.udid === $('device').value);
   const needsPairing = !!device && !device.ready;
   const alreadyEnabled = device?.developer_mode === true || (setup.udid === device?.udid && setup.state === 'enabled');
@@ -53,7 +54,7 @@ function renderStatus(data) {
   if (activeUdid && mode !== 'real' && devices.some(d => d.udid === activeUdid)) $('device').value = activeUdid;
   const same = !data.udid || data.udid === $('device').value;
   $('status').className = `status ${same ? mode : 'unknown'}`;
-  $('status-text').textContent = same && mode === 'spoofed' ? `Spoofing · ${data.destination.latitude.toFixed(4)}, ${data.destination.longitude.toFixed(4)}` : same && mode === 'real' ? 'Real GPS' : 'Location unknown';
+  $('status-text').textContent = same && mode === 'spoofed' ? `Spoofing${data.drift?.active ? ' · drift ≤' + data.drift.radius_m + ' m' : ''} · ${(data.position || data.destination).latitude.toFixed(6)}, ${(data.position || data.destination).longitude.toFixed(6)}` : same && mode === 'real' ? 'Real GPS' : 'Location unknown';
   if (data.error) { $('status').className = 'status error'; $('status-text').textContent = data.error; }
   controls();
   if ((previousSetup === 'enabling' || previousSetup === 'pairing') && setup.state !== 'enabling' && setup.state !== 'pairing') {
@@ -117,7 +118,7 @@ async function change(action) {
   busy = true; controls(); message(action === 'spoof' ? 'Applying location…' : 'Restoring real location…');
   try {
     const data = {udid:$('device').value};
-    if (action === 'spoof') Object.assign(data, coordinates(), {label:selectedLabel});
+    if (action === 'spoof') Object.assign(data, coordinates(), {label:selectedLabel,drift_radius_m:$('drift').checked ? 3 : 0});
     renderStatus(await api(`/api/${action}`,data));
     message(action === 'spoof' ? 'Location applied.' : 'Simulation cleared.');
   } catch (err) { message(err.message,true); try {renderStatus(await api('/api/status'));} catch { $('status-text').textContent = 'Server unavailable · location status unknown'; } }

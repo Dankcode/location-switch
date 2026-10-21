@@ -4,6 +4,7 @@ import os
 import time
 from contextlib import suppress
 from .runtime import worker_command
+from .drift import DriftPath
 
 
 class DeviceError(RuntimeError):
@@ -30,6 +31,11 @@ class DeviceController:
         self.revealed_devices = set()
         self.pairing_attempted = set()
         self.operation_message = None
+        self.position = None
+        self.drift_radius_m = 0
+        self.drift_stop = None
+        self.drift_tasks = set()
+        self.drift_interval = 5.0
 
     async def devices(self, force=False):
         async with self.discovery_lock:
@@ -94,9 +100,11 @@ class DeviceController:
     def status(self):
         if self.process and self.process.returncode is not None:
             self.mode = "unknown"
+            self._stop_drift()
             self.error = "Device session ended. Reconnect and restore real location to confirm recovery."
         return {"mode": self.mode, "udid": self.udid, "destination": self.destination,
-                "error": self.error, "developer_setup": self.setup.copy(), "operation_message":self.operation_message}
+                "error": self.error, "developer_setup": self.setup.copy(), "operation_message":self.operation_message, "position": self.position,
+                "drift": {"active": self.drift_radius_m > 0, "radius_m": self.drift_radius_m}}
 
     async def enable_developer_mode(self, udid):
         return await self._start_setup(udid,"enable-developer-mode")
@@ -179,6 +187,7 @@ class DeviceController:
         return reply
 
     async def _close(self):
+        self._stop_drift()
         if self.process:
             if self.process.returncode is None:
                 self.process.stdin.close()  # worker attempts clear before teardown
@@ -191,12 +200,64 @@ class DeviceController:
                 await self.stderr_task
             self.process = None
 
-    async def change(self, udid, action, latitude=None, longitude=None, label=None):
+    async def _send_location(self, action, latitude=None, longitude=None):
+        command = {"action": action, "latitude": latitude, "longitude": longitude}
+        self.process.stdin.write((json.dumps(command) + "\n").encode())
+        await self.process.stdin.drain()
+        if not (await self._read()).get("ok"):
+            raise DeviceError("The device did not accept the command.")
+
+    def _stop_drift(self):
+        # Never cancel a task while it owns the IPC stream: its pending reply
+        # must be consumed before restore or another destination can be sent.
+        if self.drift_stop is not None:
+            self.drift_stop.set()
+        self.drift_stop = None
+        self.drift_radius_m = 0
+
+    def _start_drift(self, latitude, longitude, radius_m):
+        if radius_m <= 0:
+            return
+        self.drift_stop = stop = asyncio.Event()
+        self.drift_radius_m = radius_m
+        task = asyncio.create_task(self._drift(DriftPath(latitude, longitude, radius_m), stop))
+        self.drift_tasks.add(task)
+        task.add_done_callback(self.drift_tasks.discard)
+
+    async def _drift(self, path, stop):
+        try:
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), self.drift_interval)
+                    return
+                except asyncio.TimeoutError:
+                    pass
+                async with self.lock:
+                    if stop.is_set() or self.mode != "spoofed":
+                        return
+                    try:
+                        if self.process is None or self.process.returncode is not None:
+                            raise DeviceError("Device session ended during drift. Reconnect and restore real location.")
+                        latitude, longitude = path.step()
+                        await self._send_location("set", latitude, longitude)
+                        self.position = {"latitude": latitude, "longitude": longitude}
+                    except Exception as exc:
+                        self.mode = "unknown"
+                        self.error = f"Drift stopped: {exc}"
+                        self._stop_drift()
+                        await self._close()
+                        return
+        finally:
+            if self.drift_stop is stop:
+                self._stop_drift()
+
+    async def change(self, udid, action, latitude=None, longitude=None, label=None, drift_radius_m=0):
         async with self.lock:
             if self.setup["state"] in ("enabling","pairing"):
                 raise DeviceError("Wait for Developer Mode setup to finish before changing location.")
             if self.udid and self.udid != udid and self.mode != "real":
                 raise DeviceError("Restore real location on the current device before selecting another iPhone.")
+            self._stop_drift()
             try:
                 self.operation_message = "Connecting to iPhone…"
                 if not self.process or self.process.returncode is not None or self.udid != udid:
@@ -211,14 +272,13 @@ class DeviceController:
                     self.stderr_task = asyncio.create_task(self._drain_stderr())
                     if not (await self._read()).get("ready"):
                         raise DeviceError("Device session could not start.")
-                command = {"action": action, "latitude": latitude, "longitude": longitude}
-                self.process.stdin.write((json.dumps(command) + "\n").encode())
-                await self.process.stdin.drain()
-                if not (await self._read()).get("ok"):
-                    raise DeviceError("The device did not accept the command.")
+                await self._send_location(action, latitude, longitude)
                 self.mode = "spoofed" if action == "set" else "real"
                 self.destination = {"latitude": latitude, "longitude": longitude, "label": label} if action == "set" else None
                 self.error = None
+                self.position = {"latitude": latitude, "longitude": longitude} if action == "set" else None
+                if action == "set":
+                    self._start_drift(latitude, longitude, drift_radius_m)
                 return self.status()
             except Exception as exc:
                 self.mode = "unknown"
@@ -229,6 +289,7 @@ class DeviceController:
                 self.operation_message = None
 
     async def shutdown(self):
+        self._stop_drift()
         if self.setup_task and not self.setup_task.done():
             self.setup_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -240,3 +301,6 @@ class DeviceController:
                     await self.process.stdin.drain()
                     await self._read()
             await self._close()
+
+        if self.drift_tasks:
+            await asyncio.gather(*self.drift_tasks)

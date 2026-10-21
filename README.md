@@ -44,6 +44,8 @@ Developer Mode setup runs in a separate worker using the same `AmfiService.enabl
 3. Click **Spoof location**. The status changes only after pymobiledevice3 completes the set operation.
 4. Click **Real location** to send the stop-simulation command. The destination fields remain ready, so you can click Use spoofed location again.
 
+**Gentle drift** is optional: select it before pressing Spoof location for slow changes within 3 meters of the chosen coordinates, updated every 5 seconds with a maximum step of 0.5 meters. The selected destination stays fixed; the status shows the last acknowledged simulated position. Press Real location to stop drift and clear simulation, or uncheck drift and press Spoof location again for a fixed point. Drift stops on a worker error or server shutdown. This varies coordinates only; it does not add GPS accuracy, altitude or other sensor signals, and does not guarantee acceptance by third-party apps.
+
 The connection stays open for fast subsequent switches. Initial connection/tunnel setup can take several seconds; app location updates also depend on iOS and each app's refresh behavior. The page polls session status every two seconds. Device discovery is shared, serialized and cached for 20 seconds (60 in low-memory mode); manual Refresh forces a scan. There is no guaranteed instantaneous switch across every iPhone app.
 
 **Real location means simulation is cleared.** This tool does not read the iPhone's live GPS, and does not substitute the Mac/browser position. Status reflects command completion and connection state, not an independent measurement of the iPhone's GPS. On DVT, the clear operation sends a stop command without a device reply, matching upstream's API.

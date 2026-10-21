@@ -21,6 +21,7 @@
       <div class="coordinates"><div class="coordinate-field"><label for="latitude">Latitude</label><input id="latitude" type="number" min="-90" max="90" step="any" placeholder="−90 to 90" inputmode="decimal"></div><div class="coordinate-field"><label for="longitude">Longitude</label><input id="longitude" type="number" min="-180" max="180" step="any" placeholder="−180 to 180" inputmode="decimal"></div></div>
       <p id="selected" class="selected">No destination</p>
       <div id="map-panel" hidden><div id="map" aria-label="Destination map"></div><p id="map-status" role="status">Click the map to select a destination · OSM tiles are sent to your browser.</p></div>
+      <label class="drift-option" title="Applies on Spoof location. Slow coordinate changes within 3 meters; stops on Real location."><input id="drift" type="checkbox"> Gentle drift <span>up to 3 m · every 5 s</span></label>
       <div class="actions"><button id="spoof" disabled>Spoof location</button><button id="restore" class="outline" disabled>Real location</button></div>
       <p id="message" role="alert" hidden></p>
     </section>
